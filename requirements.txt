@@ -1,0 +1,31 @@
+# Core MCP dependencies
+mcp
+fastmcp
+
+# GPT-OSS tools (برای Browser و Python tools)
+gpt-oss
+
+# HTTP client
+requests
+
+# OpenAI Harmony (برای system prompt generation - اختیاری)
+openai-harmony
+
+# Async support
+aiohttp
+asyncio
+
+# Type hints support
+typing-extensions
+
+# Data handling
+python-dateutil
+
+# Environment variables
+python-dotenv
+
+# Optional: برای development
+pytest
+pytest-asyncio
+black
+mypy
