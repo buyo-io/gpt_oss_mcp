@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import Union, Optional
 from datetime import datetime, timedelta
 
-from mcp.server.fastmcp import Context, FastMCP
+from fastmcp import Context, FastMCP
 from gpt_oss.tools.simple_browser import SimpleBrowserTool
 from gpt_oss.tools.simple_browser.backend import YouComBackend, ExaBackend
 import requests
