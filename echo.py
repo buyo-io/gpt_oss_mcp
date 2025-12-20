@@ -6,7 +6,7 @@ from typing import Union, Optional
 from datetime import datetime, timedelta
 from fastmcp import Context, FastMCP
 from gpt_oss.tools.simple_browser import SimpleBrowserTool
-from gpt_oss.tools.simple_browser.backend import YouComBackend, ExaBackend
+from gpt_oss.tools.simple_browser.backend import ExaBackend
 import requests
 
 @dataclass
@@ -23,14 +23,8 @@ class AppContext:
     def create_or_get_browser(self, session_id: str) -> SimpleBrowserTool:
         """ساخت یا دریافت browser instance برای session"""
         if session_id not in self.browsers:
-            tool_backend = os.getenv("BROWSER_BACKEND", "exa")
-            if tool_backend == "youcom":
-                backend = YouComBackend(source="web")
-            elif tool_backend == "exa":
-                os.environ['EXA_API_KEY'] = "dbe54420-baba-48f4-abc7-e62f158d0586"  # Hardcoded Exa API key
-                backend = ExaBackend(source="web")
-            else:
-                raise ValueError(f"Invalid tool backend: {tool_backend}")
+            os.environ['EXA_API_KEY'] = "dbe54420-baba-48f4-abc7-e62f158d0586"
+            backend = ExaBackend(source="web")
             self.browsers[session_id] = SimpleBrowserTool(backend=backend)
         return self.browsers[session_id]
 
@@ -63,7 +57,6 @@ An intelligent search and chat system that combines web search capabilities with
 For search results, the `cursor` appears in brackets: `[{cursor}]`.
 Cite search results using: `【{cursor}†L{line_start}(-L{line_end})?】`
 Example: `【6†L9-L11】` or `【8†L3】`
-For LLM chat: Use natural language to query the AI assistant for reasoning and analysis.
 """.strip(),
     lifespan=app_lifespan,
     port=8002,
@@ -76,32 +69,68 @@ For LLM chat: Use natural language to query the AI assistant for reasoning and a
 @mcp.tool(
     name="search",
     title="Search the web",
-    description="Searches for information related to `query` and displays `topn` results from the web.",
+    description="جستجوی اطلاعات در وب و نمایش لینک‌های یافت شده",
 )
 async def search(
     ctx: Context,
     query: str,
     topn: int = 10,
-    source: Optional[str] = None
 ) -> str:
-    """جستجوی اطلاعات در وب"""
+    """جستجوی اطلاعات در وب - فقط لیست نتایج را برمی‌گرداند"""
     browser = ctx.request_context.lifespan_context.create_or_get_browser(
         ctx.client_id
     )
     messages = []
-    async for message in browser.search(query=query, topn=topn, source=source):
+    async for message in browser.search(query=query, topn=topn):
         if message.content and hasattr(message.content[0], 'text'):
             messages.append(message.content[0].text)
     return "\n".join(messages)
 
+
+@mcp.tool(
+    name="search_and_get_content",
+    title="Search and get full content",
+    description="جستجو در وب و دریافت محتوای کامل اولین نتیجه یا نتیجه با شماره مشخص",
+)
+async def search_and_get_content(
+    ctx: Context,
+    query: str,
+    result_index: int = 0,
+    topn: int = 10,
+) -> str:
+    """جستجو و دریافت محتوای کامل یک نتیجه"""
+    browser = ctx.request_context.lifespan_context.create_or_get_browser(
+        ctx.client_id
+    )
+    
+    # مرحله 1: جستجو
+    search_messages = []
+    async for message in browser.search(query=query, topn=topn):
+        if message.content and hasattr(message.content[0], 'text'):
+            search_messages.append(message.content[0].text)
+    
+    search_result = "\n".join(search_messages)
+    
+    # مرحله 2: باز کردن لینک با شماره result_index
+    content_messages = []
+    async for message in browser.open(id=result_index, loc=0, num_lines=-1):
+        if message.content and hasattr(message.content[0], 'text'):
+            content_messages.append(message.content[0].text)
+    
+    full_content = "\n".join(content_messages)
+    
+    return f"""=== نتایج جستجو ===
+{search_result}
+
+=== محتوای کامل نتیجه {result_index} ===
+{full_content}
+"""
+
+
 @mcp.tool(
     name="open",
     title="Open a link or page",
-    description="""
-Opens the link `id` from search results indicated by `cursor`, starting at line `loc`.
-Shows `num_lines` lines. If `id` is a string, treats it as a full URL.
-Use without `id` to scroll within the current page.
-""".strip(),
+    description="باز کردن یک لینک یا navigate در صفحه. id می‌تواند شماره لینک یا URL کامل باشد",
 )
 async def open_link(
     ctx: Context,
@@ -109,10 +138,8 @@ async def open_link(
     cursor: int = -1,
     loc: int = -1,
     num_lines: int = -1,
-    view_source: bool = False,
-    source: Optional[str] = None
 ) -> str:
-    """باز کردن لینک یا navigate در صفحه"""
+    """باز کردن لینک و دریافت محتوای کامل"""
     browser = ctx.request_context.lifespan_context.create_or_get_browser(
         ctx.client_id
     )
@@ -122,17 +149,17 @@ async def open_link(
         cursor=cursor,
         loc=loc,
         num_lines=num_lines,
-        view_source=view_source,
-        source=source
+        view_source=False,
     ):
         if message.content and hasattr(message.content[0], 'text'):
             messages.append(message.content[0].text)
     return "\n".join(messages)
 
+
 @mcp.tool(
     name="find",
     title="Find pattern in page",
-    description="Finds exact matches of `pattern` in the current page or page given by `cursor`.",
+    description="پیدا کردن pattern در صفحه جاری",
 )
 async def find_pattern(
     ctx: Context,
@@ -149,8 +176,9 @@ async def find_pattern(
             messages.append(message.content[0].text)
     return "\n".join(messages)
 
+
 # =============================================================================
-# LLM CHAT TOOLS
+# LLM CHAT TOOLS (بدون تغییر - همان کد قبلی)
 # =============================================================================
 
 @mcp.tool(
@@ -183,10 +211,11 @@ def setup_llm(
             "error": str(e)
         }
 
+
 @mcp.tool(
     name="chat_with_llm",
     title="Chat with LLM",
-    description="Send a message to the LLM and get a reasoned response. Use for analysis, reasoning, or synthesis of information.",
+    description="Send a message to the LLM and get a reasoned response.",
 )
 def chat_with_llm(
     ctx: Context,
@@ -199,7 +228,6 @@ def chat_with_llm(
     try:
         app_ctx = ctx.request_context.lifespan_context
         
-        # بررسی تنظیمات
         llm_endpoint = app_ctx.user_cache.get("llm_endpoint")
         if not llm_endpoint:
             return {
@@ -210,14 +238,12 @@ def chat_with_llm(
         api_key = app_ctx.user_cache.get("api_key")
         model = app_ctx.user_cache.get("model", "gpt-4")
         
-        # ساخت headers
         headers = {
             "Content-Type": "application/json"
         }
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
         
-        # ساخت payload
         messages = []
         if system_prompt:
             messages.append({
@@ -236,7 +262,6 @@ def chat_with_llm(
             "max_tokens": max_tokens
         }
         
-        # ارسال request
         response = requests.post(
             llm_endpoint,
             headers=headers,
@@ -246,7 +271,6 @@ def chat_with_llm(
         response.raise_for_status()
         result = response.json()
         
-        # استخراج پاسخ
         llm_response = result.get("choices", [{}])[0].get("message", {}).get("content", "")
         
         return {
@@ -262,48 +286,57 @@ def chat_with_llm(
             "error": str(e)
         }
 
+
 @mcp.tool(
     name="search_and_analyze",
     title="Search and analyze with LLM",
-    description="Combines web search with LLM analysis. Searches for query, then uses LLM to analyze and synthesize results.",
+    description="ترکیب جستجوی وب با تحلیل LLM - محتوای کامل اولین نتیجه را دریافت و تحلیل می‌کند",
 )
 async def search_and_analyze(
     ctx: Context,
     query: str,
     analysis_prompt: str,
+    result_index: int = 0,
     topn: int = 5,
     temperature: float = 0.7
 ) -> dict:
-    """ترکیب سرچ و تحلیل با LLM"""
+    """ترکیب سرچ (با محتوای کامل) و تحلیل با LLM"""
     try:
-        # مرحله 1: سرچ کردن
         browser = ctx.request_context.lifespan_context.create_or_get_browser(
             ctx.client_id
         )
         
+        # مرحله 1: جستجو
         search_messages = []
         async for message in browser.search(query=query, topn=topn):
             if message.content and hasattr(message.content[0], 'text'):
                 search_messages.append(message.content[0].text)
         
-        search_results = "\n".join(search_messages)
+        # مرحله 2: دریافت محتوای کامل
+        content_messages = []
+        async for message in browser.open(id=result_index, loc=0, num_lines=-1):
+            if message.content and hasattr(message.content[0], 'text'):
+                content_messages.append(message.content[0].text)
         
-        # مرحله 2: تحلیل با LLM
+        full_content = "\n".join(content_messages)
+        
+        # مرحله 3: تحلیل با LLM
         app_ctx = ctx.request_context.lifespan_context
         llm_endpoint = app_ctx.user_cache.get("llm_endpoint")
         
         if not llm_endpoint:
             return {
                 "success": True,
-                "search_results": search_results,
+                "search_results": "\n".join(search_messages),
+                "full_content": full_content,
                 "analysis": None,
                 "message": "Search completed but LLM not configured for analysis"
             }
         
-        # ارسال نتایج به LLM
-        combined_prompt = f"""Based on the following search results, {analysis_prompt}
-Search Results:
-{search_results}
+        combined_prompt = f"""بر اساس محتوای زیر، {analysis_prompt}
+
+محتوای کامل صفحه:
+{full_content}
 """
         
         llm_result = chat_with_llm(
@@ -316,7 +349,8 @@ Search Results:
         return {
             "success": True,
             "search_query": query,
-            "search_results": search_results,
+            "search_results": "\n".join(search_messages),
+            "full_content": full_content,
             "analysis": llm_result.get("response") if llm_result.get("success") else None,
             "llm_error": llm_result.get("error") if not llm_result.get("success") else None
         }
@@ -326,6 +360,7 @@ Search Results:
             "success": False,
             "error": str(e)
         }
+
 
 @mcp.tool(
     name="get_status",
