@@ -55,10 +55,15 @@ uv (Python package manager)
 
 ```bash
 # با uv (توصیه می‌شود)
-uv add fastmcp gpt-oss requests
+git clone https://github.com/buyo-io/gpt_oss_mcp.git
 
-# یا با pip
-pip install fastmcp gpt-oss requests
+python3 -m venv venv
+
+source .venv/bin/activate
+
+pip install -r requirements.txt
+
+python echo.py
 ```
 
 ### نصب وابستگی‌های Node.js | Install Node.js Dependencies
